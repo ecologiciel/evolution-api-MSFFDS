@@ -1,58 +1,46 @@
-FROM node:20-alpine AS builder
+FROM node:18-alpine
 
-RUN apk update && \
-    apk add --no-cache git ffmpeg wget curl bash openssl
+# Installer les dépendances système nécessaires
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    ffmpeg
 
-LABEL version="2.3.0" description="Api to control whatsapp features through http requests." 
-LABEL maintainer="Davidson Gomes" git="https://github.com/DavidsonGomes"
-LABEL contact="contato@evolution-api.com"
-
-WORKDIR /evolution
-
-COPY ./package.json ./tsconfig.json ./
-
-RUN npm install
-
-COPY ./src ./src
-COPY ./public ./public
-COPY ./prisma ./prisma
-COPY ./manager ./manager
-COPY ./.env.example ./.env
-COPY ./runWithProvider.js ./
-COPY ./tsup.config.ts ./
-
-COPY ./Docker ./Docker
-
-RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
-
-RUN ./Docker/scripts/generate_database.sh
-
-RUN npm run build
-
-FROM node:20-alpine AS final
-
-RUN apk update && \
-    apk add tzdata ffmpeg bash openssl
-
-ENV TZ=America/Sao_Paulo
+# Variables d'environnement pour Puppeteer
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 WORKDIR /evolution
 
-COPY --from=builder /evolution/package.json ./package.json
-COPY --from=builder /evolution/package-lock.json ./package-lock.json
+# Copier les fichiers de configuration
+COPY package*.json ./
+COPY yarn.lock ./
 
-COPY --from=builder /evolution/node_modules ./node_modules
-COPY --from=builder /evolution/dist ./dist
-COPY --from=builder /evolution/prisma ./prisma
-COPY --from=builder /evolution/manager ./manager
-COPY --from=builder /evolution/public ./public
-COPY --from=builder /evolution/.env ./.env
-COPY --from=builder /evolution/Docker ./Docker
-COPY --from=builder /evolution/runWithProvider.js ./runWithProvider.js
-COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
+# Installer les dépendances
+RUN yarn install --production
 
-ENV DOCKER_ENV=true
+# Copier le code source
+COPY . .
 
+# Créer les dossiers nécessaires
+RUN mkdir -p /evolution/instances
+RUN mkdir -p /evolution/store
+
+# Exposer le port
 EXPOSE 8080
 
-ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ]
+# Variables d'environnement par défaut
+ENV SERVER_TYPE=http
+ENV SERVER_PORT=8080
+ENV SERVER_URL=https://localhost:8080
+ENV CORS_ORIGIN=*
+ENV CORS_METHODS=POST,GET,PUT,DELETE
+ENV CORS_CREDENTIALS=true
+
+# Commande de démarrage
+CMD ["node", "./dist/src/main.js"]
